@@ -1,4 +1,5 @@
 import type { Adventure } from "@/adventures/types";
+import { soundSrc } from "@/sound-library/paths";
 import type { Sound, SoundKind } from "@/sound-library/types";
 
 const ALLOWED_LICENSES: ReadonlySet<string> = new Set([
@@ -39,6 +40,12 @@ export function validateContent(
   }
 
   for (const sound of sounds) {
+    const expectedSrc = soundSrc(sound.kind, sound.id);
+    if (sound.src !== expectedSrc) {
+      errors.push(
+        `Sound "${sound.id}": src "${sound.src}" must be "${expectedSrc}" (derived from kind and id)`,
+      );
+    }
     if (!fileExists(sound.src)) {
       errors.push(`Sound "${sound.id}": audio file not found at "${sound.src}"`);
     }

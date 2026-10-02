@@ -123,6 +123,14 @@ describe("validateContent", () => {
     expect(errors).toHaveLength(1);
   });
 
+  it("reports a src that does not match the kind and id", () => {
+    const wrong = sound("raro", "sfx", { src: "/audio/music/raro.mp3" });
+    const errors = validateContent([wrong], [], exists);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("raro");
+    expect(errors[0]).toContain("/audio/sfx/raro.mp3");
+  });
+
   it("reports non-generated credit without url", () => {
     const noUrl = sound("sin-url", "sfx", {
       credit: { author: "A", source: "freesound", license: "CC0" },
