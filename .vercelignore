@@ -1,0 +1,6 @@
+out/
+.superpowers/
+scripts/.cache/
+*.tsbuildinfo
+node_modules/
+.next/
