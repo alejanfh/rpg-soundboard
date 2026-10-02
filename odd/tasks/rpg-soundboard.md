@@ -10,16 +10,16 @@
 
 ## Tasks
 
-- [ ] T1 Project scaffold
-- [ ] T2 Domain types and content integrity
-- [ ] T3 Audio engine core
-- [ ] T4 Track channels (crossfade)
-- [ ] T5 SFX playback + browser engine
-- [ ] T6 Audio sourcing pipeline + library content
-- [ ] T7 Adventure La última inspección
-- [ ] T8 Soundboard UI
-- [ ] T9 Library drawer + credits
-- [ ] T10 Smoke test + deploy
+- [x] T1 Project scaffold (commits 970ce78, 2910919; review clean)
+- [x] T2 Domain types and content integrity (commit 39c5f5f; review clean)
+- [x] T3 Audio engine core (commit 3cc54c9; review clean)
+- [x] T4 Track channels (crossfade) (commit 802680c; review clean)
+- [x] T5 SFX playback + browser engine (commits 9d470eb, 726a5b3; review clean)
+- [x] T6 Audio sourcing pipeline + library content (commits 57d2db8..78783b5; review clean after 1 fix round)
+- [x] T7 Adventure La última inspección (commit 8f817aa; review clean)
+- [x] T8 Soundboard UI (commits 039e6f6, bd22acf, 046fed2; review clean after 1 fix round)
+- [x] T9 Library drawer + credits (commit 386fe1b; review clean)
+- [ ] T10 Smoke test + README (deploy cancelled: user deploys personally). README 3cea710; browser smoke passed (Chromium preview); real iPad check pending
 
 ## Progress / evidence
 
@@ -27,4 +27,4 @@
 
 ## Next step
 
-T1.
+Final review fix wave, then real iPad smoke test by the user.
