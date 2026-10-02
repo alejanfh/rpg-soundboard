@@ -138,6 +138,19 @@ describe("validateContent", () => {
     expect(validateContent([generated], [], exists)).toEqual([]);
   });
 
+  it("accepts a credit with the original work title", () => {
+    const withTitle = sound("con-titulo", "music", {
+      credit: {
+        author: "Kevin MacLeod",
+        workTitle: "Maple Leaf Rag",
+        source: "incompetech",
+        license: "CC-BY-4.0",
+        url: "https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1900058",
+      },
+    });
+    expect(validateContent([withTitle], [], exists)).toEqual([]);
+  });
+
   it("reports license outside the allowed set", () => {
     const bad = sound("licencia-mala", "sfx", {
       credit: {

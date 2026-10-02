@@ -11,6 +11,8 @@ export interface SoundCredit {
   license: "CC0" | "CC-BY-4.0" | "public-domain" | "generated";
   /** Required unless source is 'generated'. */
   url?: string;
+  /** Title of the original work, needed for CC-BY attribution. */
+  workTitle?: string;
 }
 
 export interface Sound {

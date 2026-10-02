@@ -1,4 +1,4 @@
-import { soundSrc } from "./index";
+import { soundSrc } from "./paths";
 import type { Sound } from "./types";
 
 export const sounds: Sound[] = [
@@ -11,6 +11,7 @@ export const sounds: Sound[] = [
     tags: ["radio", "jazz", "años 20", "ragtime", "época"],
     credit: {
       author: "Kevin MacLeod",
+      workTitle: "Maple Leaf Rag",
       source: "incompetech",
       license: "CC-BY-4.0",
       url: "https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1900058",
@@ -24,6 +25,7 @@ export const sounds: Sound[] = [
     tags: ["vals", "piano", "elegante", "inquietante", "melancólico"],
     credit: {
       author: "Kevin MacLeod",
+      workTitle: "Rains Will Fall",
       source: "incompetech",
       license: "CC-BY-4.0",
       url: "https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1100723",
@@ -37,6 +39,7 @@ export const sounds: Sound[] = [
     tags: ["misterio", "investigación", "jazz", "noir", "detective"],
     credit: {
       author: "Kevin MacLeod",
+      workTitle: "Deadly Roulette",
       source: "incompetech",
       license: "CC-BY-4.0",
       url: "https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1600033",
@@ -50,6 +53,7 @@ export const sounds: Sound[] = [
     tags: ["tensión", "oscuro", "suspense", "sombras"],
     credit: {
       author: "Kevin MacLeod",
+      workTitle: "Penumbra",
       source: "incompetech",
       license: "CC-BY-4.0",
       url: "https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1200105",
@@ -63,6 +67,7 @@ export const sounds: Sound[] = [
     tags: ["horror", "crescendo", "terror", "tensión", "clímax"],
     credit: {
       author: "Kevin MacLeod",
+      workTitle: "The Escalation",
       source: "incompetech",
       license: "CC-BY-4.0",
       url: "https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1400041",
@@ -76,6 +81,7 @@ export const sounds: Sound[] = [
     tags: ["combate", "acción", "horror", "persecución"],
     credit: {
       author: "Kevin MacLeod",
+      workTitle: "Malicious",
       source: "incompetech",
       license: "CC-BY-4.0",
       url: "https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1700045",
@@ -89,6 +95,7 @@ export const sounds: Sound[] = [
     tags: ["calma", "tras el horror", "desenlace", "quietud", "alivio"],
     credit: {
       author: "Kevin MacLeod",
+      workTitle: "Ossuary 5 - Rest",
       source: "incompetech",
       license: "CC-BY-4.0",
       url: "https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1500047",
