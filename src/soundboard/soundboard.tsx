@@ -6,6 +6,7 @@ import type { Adventure, Scene, SceneCue } from "@/adventures";
 import type { Layer, TrackLayer } from "@/audio-engine";
 import { getSound, type Sound } from "@/sound-library";
 import { fireCue } from "./fire-cue";
+import { LibraryDrawer } from "./library-drawer";
 import { Mixer } from "./mixer";
 import { ScenePanel } from "./scene-panel";
 import { SceneList } from "./scene-list";
@@ -34,6 +35,9 @@ function sceneTrack(id: string | undefined): Sound | undefined {
 export function Soundboard({ adventure }: { adventure: Adventure }) {
   const { engine, snapshot } = useAudioEngine();
   const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const libraryButton = useRef<HTMLButtonElement>(null);
+  const libraryWasOpen = useRef(false);
   // The tracks the GM last asked for (scene or cue). The engine drops
   // `setTrack` while locked, so they are re-applied on every unlock.
   const requestedTracks = useRef<Partial<Record<TrackLayer, Sound | undefined>>>({});
@@ -52,6 +56,13 @@ export function Soundboard({ adventure }: { adventure: Adventure }) {
   }, [snapshot.unlocked, engine, preloadList]);
 
   useEffect(() => () => engine.stopAll(), [engine]);
+
+  // Give focus back to the opener once the drawer is gone and the shell is
+  // no longer inert.
+  useEffect(() => {
+    if (libraryWasOpen.current && !libraryOpen) libraryButton.current?.focus();
+    libraryWasOpen.current = libraryOpen;
+  }, [libraryOpen]);
 
   const requestTrack = (layer: TrackLayer, sound: Sound | undefined) => {
     requestedTracks.current[layer] = sound;
@@ -73,12 +84,17 @@ export function Soundboard({ adventure }: { adventure: Adventure }) {
   };
 
   const playSfx = (sound: Sound) => void engine.playSfx(sound);
+  // Library picks never touch the active scene: loops replace their layer only.
+  const pickFromLibrary = (sound: Sound) => {
+    if (sound.kind === "sfx") playSfx(sound);
+    else requestTrack(sound.kind, sound);
+  };
   const setVolume = (layer: Layer, value: number) => engine.setVolume(layer, value);
 
   return (
     <>
-      {/* While locked, the shell is inert: calls would be dropped by the engine. */}
-      <div className="flex h-dvh flex-col" inert={!snapshot.unlocked}>
+      {/* Inert while locked (the engine would drop calls) or while the modal library is open. */}
+      <div className="flex h-dvh flex-col" inert={!snapshot.unlocked || libraryOpen}>
         <header className="flex items-center gap-4 border-b border-brass/30 px-4 py-2">
           <Link
             href="/"
@@ -89,8 +105,17 @@ export function Soundboard({ adventure }: { adventure: Adventure }) {
           <h1 className="min-w-0 flex-1 truncate font-display text-lg text-brass-bright sm:text-2xl">
             {adventure.title}
           </h1>
-          {/* Slot for the library drawer's "Biblioteca" button (Task 9). */}
-          <div data-slot="biblioteca" className="flex shrink-0 items-center gap-2" />
+          <div data-slot="biblioteca" className="flex shrink-0 items-center gap-2">
+            <button
+              ref={libraryButton}
+              type="button"
+              aria-haspopup="dialog"
+              onClick={() => setLibraryOpen(true)}
+              className="flex min-h-11 items-center rounded-md border border-brass px-4 text-base text-brass-bright hover:bg-tank"
+            >
+              Biblioteca
+            </button>
+          </div>
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col md:flex-row">
@@ -124,6 +149,13 @@ export function Soundboard({ adventure }: { adventure: Adventure }) {
         </footer>
       </div>
 
+      {libraryOpen && (
+        <LibraryDrawer
+          failed={failed}
+          onClose={() => setLibraryOpen(false)}
+          onPick={pickFromLibrary}
+        />
+      )}
       <FailureToasts failed={snapshot.failed} lookup={getSound} />
       {!snapshot.unlocked && (
         <UnlockOverlay
