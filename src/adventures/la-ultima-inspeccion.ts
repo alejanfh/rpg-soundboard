@@ -31,7 +31,7 @@ export const laUltimaInspeccion: Adventure = {
       musicId: "elegancia-inquietante",
       ambienceId: "burbujeo-acuario",
       sfxIds: ["pasos-baldosa", "puerta-chirrido", "pez-coleteando", "latido"],
-      cues: [],
+      cues: [{ moment: "Empieza la visita", soundIds: ["puerta-chirrido"] }],
     },
     {
       id: "visita-guiada",
@@ -46,10 +46,7 @@ export const laUltimaInspeccion: Adventure = {
         "chorro-agua",
       ],
       cues: [
-        {
-          moment: "El apagón (después, pasar a la sala del generador)",
-          soundIds: ["apagon", "golpe-tension"],
-        },
+        { moment: "El apagón", soundIds: ["apagon", "golpe-tension"] },
       ],
     },
     {
@@ -67,6 +64,10 @@ export const laUltimaInspeccion: Adventure = {
         {
           moment: "La tubería rota desde dentro",
           soundIds: ["crujido-metal"],
+        },
+        {
+          moment: "Falla el generador principal",
+          soundIds: ["generador-falla", "chispazo"],
         },
       ],
     },
@@ -153,6 +154,7 @@ export const laUltimaInspeccion: Adventure = {
           soundIds: ["grito-mujer", "zambullida"],
         },
         { moment: "Al mirar la estatuilla", soundIds: ["trance-hipnotico"] },
+        { moment: "Vuelve el combate", soundIds: ["combate-horror"] },
         {
           moment: "La estatuilla se rompe",
           soundIds: ["estatuilla-rompe", "golpe-tension"],
