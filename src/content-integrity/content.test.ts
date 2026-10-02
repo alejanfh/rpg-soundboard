@@ -13,4 +13,12 @@ describe("real content", () => {
     );
     expect(errors).toEqual([]);
   });
+
+  it("switches to the underground hum when the lift descends", () => {
+    const scene = adventures
+      .flatMap((adventure) => adventure.scenes)
+      .find((candidate) => candidate.id === "llegada-montacargas");
+    const cue = scene?.cues.find((candidate) => candidate.moment === "Bajada al acuario");
+    expect(cue?.soundIds).toEqual(["montacargas", "zumbido-subterraneo"]);
+  });
 });

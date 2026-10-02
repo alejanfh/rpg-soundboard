@@ -22,7 +22,10 @@ export const laUltimaInspeccion: Adventure = {
       ],
       cues: [
         { moment: "Llegada en limusina", soundIds: ["coche-grava"] },
-        { moment: "Bajada al acuario", soundIds: ["montacargas"] },
+        {
+          moment: "Bajada al acuario",
+          soundIds: ["montacargas", "zumbido-subterraneo"],
+        },
       ],
     },
     {
