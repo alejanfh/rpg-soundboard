@@ -57,6 +57,11 @@ export function validateContent(
         `Sound "${sound.id}": license "${credit.license}" is not in the allowed set (${[...ALLOWED_LICENSES].join(", ")})`,
       );
     }
+    if (credit.license === "CC-BY-4.0" && !credit.workTitle) {
+      errors.push(
+        `Sound "${sound.id}": CC-BY-4.0 credit requires a workTitle (the original work's title)`,
+      );
+    }
   }
 
   for (const adventure of adventures) {

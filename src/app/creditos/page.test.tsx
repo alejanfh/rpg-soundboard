@@ -37,6 +37,29 @@ describe("Credits page", () => {
     );
   });
 
+  it("notes on every CC-BY line that the work was edited", () => {
+    render(<Credits />);
+
+    const ccBy = sounds.filter((sound) => sound.credit.license === "CC-BY-4.0");
+    expect(ccBy.length).toBeGreaterThan(0);
+    for (const sound of ccBy) {
+      const item = screen.getByText(sound.title).closest("li")!;
+      expect(item).toHaveTextContent(
+        "Editado para este proyecto (recorte, fundido y normalización de volumen)",
+      );
+    }
+  });
+
+  it("does not add the modification notice to non CC-BY lines", () => {
+    render(<Credits />);
+
+    const others = sounds.filter((sound) => sound.credit.license !== "CC-BY-4.0");
+    for (const sound of others) {
+      const item = screen.getByText(sound.title).closest("li")!;
+      expect(item).not.toHaveTextContent("Editado para este proyecto");
+    }
+  });
+
   it("credits CC0 sounds with author, license and source link", () => {
     render(<Credits />);
 

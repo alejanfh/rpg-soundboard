@@ -23,6 +23,10 @@ const SOURCE_NAMES: Record<SoundCredit["source"], string> = {
 
 const CC_BY_URL = "https://creativecommons.org/licenses/by/4.0/";
 
+/** CC-BY requires indicating that the work was modified. */
+const MODIFICATION_NOTICE =
+  "Editado para este proyecto (recorte, fundido y normalización de volumen)";
+
 const LINK_CLASS =
   "underline decoration-kelp underline-offset-4 hover:text-bone hover:decoration-verdigris";
 
@@ -52,6 +56,7 @@ function CreditLine({ sound }: { sound: Sound }) {
         &quot;{credit.workTitle ?? sound.title}&quot; {credit.author} ({sourceLink}) —
         Licensed under{" "}
         <ExternalLink href={CC_BY_URL}>Creative Commons: By Attribution 4.0</ExternalLink>
+        . {MODIFICATION_NOTICE}.
       </>
     );
   }

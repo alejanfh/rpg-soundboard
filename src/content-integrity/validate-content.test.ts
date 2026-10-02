@@ -151,6 +151,27 @@ describe("validateContent", () => {
     expect(validateContent([withTitle], [], exists)).toEqual([]);
   });
 
+  it("reports a CC-BY credit without the original work title", () => {
+    const noTitle = sound("sin-titulo", "music", {
+      credit: {
+        author: "Kevin MacLeod",
+        source: "incompetech",
+        license: "CC-BY-4.0",
+        url: "https://incompetech.com/music/royalty-free/index.html",
+      },
+    });
+    const errors = validateContent([noTitle], [], exists);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("sin-titulo");
+    expect(errors[0]).toContain("workTitle");
+  });
+
+  it("does not require a work title for non CC-BY licenses", () => {
+    const cc0 = sound("cero", "sfx");
+    expect(cc0.credit.workTitle).toBeUndefined();
+    expect(validateContent([cc0], [], exists)).toEqual([]);
+  });
+
   it("reports license outside the allowed set", () => {
     const bad = sound("licencia-mala", "sfx", {
       credit: {
