@@ -19,7 +19,7 @@
 - [x] T7 Adventure La última inspección (commit 8f817aa; review clean)
 - [x] T8 Soundboard UI (commits 039e6f6, bd22acf, 046fed2; review clean after 1 fix round)
 - [x] T9 Library drawer + credits (commit 386fe1b; review clean)
-- [ ] T10 Smoke test + README (deploy cancelled: user deploys personally). README 3cea710; browser smoke passed (Chromium preview); real iPad check pending
+- [x] T10 Smoke test + README (README, browser smoke passed; deploy cancelled — owner deploys manually; real iPad check pending)
 
 ## Progress / evidence
 
@@ -27,4 +27,6 @@
 
 ## Next step
 
-Final review fix wave, then real iPad smoke test by the user.
+Done. Final review fixes applied (8 findings). Next: owner runs the real-device smoke checklist in README.
+
+Note: commit history was rewritten to the personal identity on 2026-10-02, so commit ids listed above are stale; use `git log` as the record.
