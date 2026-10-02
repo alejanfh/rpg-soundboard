@@ -523,4 +523,54 @@ describe("AudioEngine tracks hardening", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(engine.getSnapshot().failed).toEqual(["b"]);
   });
+
+  it("unlock after an interruption replays a paused current track inside the gesture, before the context resumes", async () => {
+    const { engine, fake } = await setup();
+    engine.setTrack("music", A);
+    engine.setTrack("ambience", C);
+    vi.advanceTimersByTime(CROSSFADE_SECONDS * 1000);
+    const [music] = playingDecks(decksOf(fake, engine, "music"));
+    const [ambience] = playingDecks(decksOf(fake, engine, "ambience"));
+    const musicCurves = curves(music.gain).length;
+
+    // iOS interruption: the OS pauses the media and suspends the context.
+    music.element.pause();
+    fake.context.setState("suspended");
+    expect(engine.getSnapshot().unlocked).toBe(false);
+    const musicPlays = music.element.playCalls;
+    const ambiencePlays = ambience.element.playCalls;
+    const resume = fake.context.resume.bind(fake.context);
+    let playsWhenResumed: number | undefined;
+    fake.context.resume = () => {
+      playsWhenResumed = music.element.playCalls;
+      return resume();
+    };
+
+    await engine.unlock();
+
+    expect(music.element.playCalls).toBe(musicPlays + 1);
+    expect(playsWhenResumed).toBe(musicPlays + 1);
+    expect(music.element.paused).toBe(false);
+    // A still-playing deck is left alone, and the gain is not re-faded.
+    expect(ambience.element.playCalls).toBe(ambiencePlays);
+    expect(curves(music.gain)).toHaveLength(musicCurves);
+    expect(engine.getSnapshot().unlocked).toBe(true);
+    expect(engine.getSnapshot().current).toEqual({ music: "a", ambience: "c" });
+  });
+
+  it("unlock does not replay a deck that was paused after fading out", async () => {
+    const { engine, fake } = await setup();
+    engine.setTrack("music", A);
+    const [deckA] = playingDecks(decksOf(fake, engine, "music"));
+    engine.setTrack("music", undefined);
+    vi.advanceTimersByTime(CROSSFADE_SECONDS * 1000);
+    expect(deckA.element.paused).toBe(true);
+    const plays = deckA.element.playCalls;
+    fake.context.setState("suspended");
+
+    await engine.unlock();
+
+    expect(deckA.element.playCalls).toBe(plays);
+    expect(engine.getSnapshot().current).toEqual({});
+  });
 });

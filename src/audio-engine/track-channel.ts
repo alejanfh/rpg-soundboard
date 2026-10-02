@@ -87,6 +87,17 @@ export class TrackChannel {
     return true;
   }
 
+  /**
+   * Restarts the current track if something (an OS audio interruption, for
+   * example) paused its element. Gain and fade state are left as they are.
+   * Call it inside a user gesture so the browser allows play().
+   */
+  resumeIfPaused(): void {
+    const deck = this.active;
+    if (!deck || deck.soundId === undefined || !deck.element.paused) return;
+    this.start(deck, deck.soundId);
+  }
+
   /** Fades the layer out. Returns false when nothing was playing. */
   stop(): boolean {
     if (!this.active) return false;

@@ -83,6 +83,9 @@ describe("Soundboard", () => {
       ),
     ).toBeInTheDocument();
     expect(fake.engine.preloadSfx).not.toHaveBeenCalled();
+    const shell = () =>
+      screen.getByRole("navigation", { name: "Escenas", hidden: true }).closest("[inert]");
+    expect(shell()).not.toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Toca para activar el sonido/ }));
     expect(fake.engine.unlock).toHaveBeenCalledTimes(1);
@@ -90,6 +93,7 @@ describe("Soundboard", () => {
     setSnapshot({ unlocked: true });
 
     expect(screen.queryByText("Toca para activar el sonido")).not.toBeInTheDocument();
+    expect(shell()).toBeNull();
   });
 
   it("preloads every scene and cue sfx once unlocked", () => {
@@ -135,7 +139,11 @@ describe("Soundboard", () => {
     expect(screen.getByRole("heading", { name: "Sala del generador" })).toBeInTheDocument();
   });
 
-  it("re-applies the active scene tracks after a re-unlock", () => {
+  // Only proves the UI re-requests its tracks (covers calls dropped while
+  // locked). With the same ids the engine treats them as no-ops; restarting
+  // tracks an interruption paused is AudioEngine.unlock()'s job, covered in
+  // audio-engine.tracks.test.ts.
+  it("re-requests the active scene tracks after a re-unlock", () => {
     renderSoundboard();
     fireEvent.click(sceneButton(/Llegada y montacargas/));
     setSnapshot({ unlocked: false });

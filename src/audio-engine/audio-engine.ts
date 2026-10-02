@@ -93,13 +93,17 @@ export class AudioEngine {
   }
 
   /**
-   * Creates the context and graph on first call and resumes the context.
-   * Must run inside a user gesture. Never rejects: if the browser refuses,
+   * Creates the context and graph on first call and resumes the context,
+   * restarting any current track whose element was paused (after an iOS
+   * interruption, for example). Must run inside a user gesture. Never rejects: if the browser refuses,
    * the engine simply stays locked.
    */
   async unlock(): Promise<void> {
     try {
       const graph = this.graph ?? this.createGraph();
+      // Synchronously, while still inside the gesture: restart tracks an
+      // interruption paused. Re-selecting them would be a no-op (same id).
+      for (const layer of TRACK_LAYERS) this.channels[layer]?.resumeIfPaused();
       await graph.context.resume();
     } catch {
       return;
