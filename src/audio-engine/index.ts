@@ -6,6 +6,7 @@ export {
   VOLUMES_STORAGE_KEY,
 } from "./audio-engine";
 export type { AudioGraph } from "./audio-engine";
+export { getBrowserEngine } from "./browser-engine";
 export type {
   AudioEngineDeps,
   EngineSnapshot,

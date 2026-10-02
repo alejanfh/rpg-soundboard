@@ -1,3 +1,4 @@
+import { SfxPlayer } from "./sfx-player";
 import { CROSSFADE_SECONDS, TrackChannel } from "./track-channel";
 import type {
   AudioEngineDeps,
@@ -60,6 +61,7 @@ export class AudioEngine {
   private readonly listeners = new Set<() => void>();
   private graph: AudioGraph | null = null;
   private readonly channels: Partial<Record<TrackLayer, TrackChannel>> = {};
+  private sfxPlayer: SfxPlayer | null = null;
   private snapshot: EngineSnapshot;
 
   constructor(deps: AudioEngineDeps) {
@@ -142,13 +144,39 @@ export class AudioEngine {
     if (changed) this.syncCurrent();
   }
 
-  /** Fades out both track layers and clears them. */
+  /**
+   * Fetches and decodes `sounds` ahead of time so their first press is instant.
+   * Resolves once every sound settled; failures land in `snapshot.failed`.
+   * Skipped entirely before unlock (call it again after `unlock()`).
+   */
+  async preloadSfx(sounds: readonly PlayableSound[]): Promise<void> {
+    const player = this.sfxPlayerIfUnlocked();
+    if (player) await player.preload(sounds);
+  }
+
+  /**
+   * Plays `sound` as a one-shot on the sfx bus. Polyphonic: pressing it twice
+   * overlaps. Decodes lazily if it was not preloaded. Never rejects; does
+   * nothing before unlock or while the context is not running.
+   */
+  async playSfx(sound: PlayableSound): Promise<void> {
+    const player = this.sfxPlayerIfUnlocked();
+    if (player) await player.play(sound);
+  }
+
+  /** Stops every sfx source that is playing. */
+  stopAllSfx(): void {
+    this.sfxPlayer?.stopAll();
+  }
+
+  /** Fades out both track layers and clears them, and stops all sfx. */
   stopAll(): void {
     let changed = false;
     for (const layer of TRACK_LAYERS) {
       if (this.channels[layer]?.stop()) changed = true;
     }
     if (changed) this.syncCurrent();
+    this.stopAllSfx();
   }
 
   /** Merges `patch` into the snapshot and notifies subscribers. */
@@ -168,6 +196,17 @@ export class AudioEngine {
     });
     this.channels[layer] = channel;
     return channel;
+  }
+
+  private sfxPlayerIfUnlocked(): SfxPlayer | null {
+    if (!this.graph || !this.snapshot.unlocked) return null;
+    this.sfxPlayer ??= new SfxPlayer({
+      context: this.graph.context,
+      bus: this.graph.buses.sfx,
+      fetchArrayBuffer: this.deps.fetchArrayBuffer,
+      onFailed: (soundId) => this.markFailed(soundId),
+    });
+    return this.sfxPlayer;
   }
 
   private syncCurrent(): void {
