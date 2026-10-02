@@ -5,6 +5,7 @@
  *   npm run audio                 build every missing file
  *   npm run audio -- --force      rebuild everything
  *   npm run audio -- --only a,b   build only the listed ids
+ *   npm run audio -- --kind sfx   build only one kind (music, ambience or sfx)
  *
  * Downloads are cached in scripts/.cache (git-ignored). Outputs go to
  * public/audio/<kind>/<id>.mp3: trimmed, loudness-normalized (two-pass
@@ -53,13 +54,18 @@ const TRIM_FADE_SECONDS = { sfx: 0.3, ambience: 2, music: 2 };
 const LOUDNESS = { music: -20, ambience: -23, sfx: -16 };
 const TRUE_PEAK = -1.5;
 /**
- * Short transient sounds (slams, shots) cannot reach their integrated target without
- * exceeding the true-peak ceiling, so loudnorm leaves them far too quiet. SFX instead get
- * a measured gain plus a peak limiter, capped so the limiter never works harder than this.
+ * Short transient sounds (slams, shots, steps) cannot reach their integrated target without
+ * exceeding the true-peak ceiling, so loudnorm leaves them far too quiet. SFX instead get a
+ * gentle compressor, then a measured gain plus a peak limiter that may work this hard (dB).
  */
-const MAX_LIMITING_DB = 6;
-/** The limiter works on sample peaks and MP3 encoding overshoots, so it stops this far below the true-peak target. */
-const LIMITER_MARGIN_DB = 1.5;
+const MAX_LIMITING_DB = 12;
+const SFX_COMPRESSOR = "acompressor=threshold=0.02:ratio=4:attack=3:release=60:makeup=1";
+/** SFX quieter than this after normalization are reported as peak-normalized. */
+const SFX_FLOOR_LUFS = -20;
+/** Below this the integrated loudness is just the gate floor, i.e. not really measurable. */
+const UNMEASURABLE_LUFS = -69;
+/** The limiter works on sample peaks, so it stops this far below the true-peak target; MP3 overshoot is corrected after encoding. */
+const LIMITER_MARGIN_DB = 0.3;
 
 function fail(message) {
   console.error(`error: ${message}`);
@@ -250,25 +256,41 @@ function plan(entry, sourceFile) {
     label = "[faded]";
   }
 
+  if (sfx) {
+    parts.push(`${label}${SFX_COMPRESSOR}[compressed]`);
+    label = "[compressed]";
+  }
+
   return { inputArgs, graph: parts.join(";"), label, layout, length };
 }
 
 function loudnormFilter(kind, measured) {
   const base = `loudnorm=I=${LOUDNESS[kind]}:TP=${TRUE_PEAK}:LRA=50`;
   if (!measured) return `${base}:print_format=json`;
-  if (kind === "sfx") {
-    const wanted = LOUDNESS.sfx - Number(measured.input_i);
-    const limit = TRUE_PEAK - LIMITER_MARGIN_DB;
-    const headroom = limit - Number(measured.input_tp) + MAX_LIMITING_DB;
-    const gain = Math.min(wanted, headroom);
-    const ceiling = 10 ** (limit / 20);
-    return `volume=${round(gain)}dB,alimiter=limit=${round(ceiling)}:level=disabled`;
-  }
   return (
     `${base}:measured_I=${measured.input_i}:measured_TP=${measured.input_tp}` +
     `:measured_LRA=${measured.input_lra}:measured_thresh=${measured.input_thresh}` +
     `:offset=${measured.target_offset}:linear=true`
   );
+}
+
+/**
+ * SFX gain stage: gain towards the loudness target, limited so the limiter never works harder
+ * than MAX_LIMITING_DB. When the loudness cannot be measured (clips under ~0.4 s) the clip is
+ * peak-normalized to the true-peak target instead. Returns the filter and how it was chosen.
+ */
+function sfxGainFilter(stats) {
+  const limit = TRUE_PEAK - LIMITER_MARGIN_DB;
+  const limiter = `alimiter=limit=${round(10 ** (limit / 20))}:level=disabled`;
+  if (!Number.isFinite(stats.lufs) || stats.lufs <= UNMEASURABLE_LUFS) {
+    const gain = TRUE_PEAK - 0.3 - stats.peak;
+    return { filter: `volume=${round(gain)}dB`, mode: "peak-normalized (loudness unmeasurable)" };
+  }
+  const wanted = LOUDNESS.sfx - stats.lufs;
+  const headroom = limit - stats.peak + MAX_LIMITING_DB;
+  const gain = Math.min(wanted, headroom);
+  const mode = gain < wanted ? "limited by peak headroom" : "on target";
+  return { filter: `volume=${round(gain)}dB,${limiter}`, mode };
 }
 
 function parseLoudnormJson(stderr) {
@@ -278,37 +300,61 @@ function parseLoudnormJson(stderr) {
   return Number.isFinite(Number(data.input_i)) ? data : null;
 }
 
-function measureOutput(file) {
-  const { stderr } = runFfmpeg(["-i", file, "-af", "ebur128=peak=true", "-f", "null", "-"]);
-  const integrated = /I:\s+(-?[\d.]+) LUFS/.exec(stderr.split("Summary:")[1] ?? "");
-  const peak = /Peak:\s+(-?[\d.]+) dBFS/.exec(stderr.split("Summary:")[1] ?? "");
+/** Reads the integrated loudness and true peak from an ebur128=peak=true summary. */
+function parseEbur128(stderr) {
+  const summary = stderr.split("Summary:")[1] ?? "";
+  const integrated = /I:\s+(-?[\d.]+) LUFS/.exec(summary);
+  const peak = /Peak:\s+(-?[\d.]+) dBFS/.exec(summary);
   return { lufs: integrated ? Number(integrated[1]) : NaN, peak: peak ? Number(peak[1]) : NaN };
 }
 
+function measureOutput(file) {
+  const { stderr } = runFfmpeg(["-i", file, "-af", "ebur128=peak=true", "-f", "null", "-"]);
+  return parseEbur128(stderr);
+}
+
 async function buildEntry(entry) {
+  const sfx = entry.kind === "sfx";
   const output = path.join(OUT_DIR, entry.kind, `${entry.id}.mp3`);
   const sourceFile = entry.origin === "download" ? await download(entry) : null;
   const { inputArgs, graph, label, layout } = plan(entry, sourceFile);
 
-  const run = (loudnorm, outputArgs) =>
+  const run = (audioFilter, outputArgs) =>
     runFfmpeg([
       "-y",
       ...inputArgs,
       "-filter_complex",
-      `${graph};${label}${loudnorm}[out]`,
+      `${graph};${label}${audioFilter}[out]`,
       "-map",
       "[out]",
       ...outputArgs,
     ]);
 
-  const measure = run(loudnormFilter(entry.kind), ["-f", "null", "-"]);
-  const measured = measure.status === 0 ? parseLoudnormJson(measure.stderr) : null;
+  // Pass 1: measure. SFX use ebur128 (loudness + true peak, also for very short clips);
+  // music and ambience use loudnorm's own measurement.
+  const measure = run(sfx ? "ebur128=peak=true" : loudnormFilter(entry.kind), ["-f", "null", "-"]);
   if (measure.status !== 0) fail(`ffmpeg failed measuring ${entry.id}:\n${measure.stderr.slice(-2000)}`);
 
+  let gainStage;
+  if (sfx) {
+    const stats = parseEbur128(measure.stderr);
+    const result = sfxGainFilter(stats);
+    gainStage = result.filter;
+    console.log(`  measured ${stats.lufs} LUFS, ${stats.peak} dBFS peak -> ${result.mode}`);
+  } else {
+    const measured = parseLoudnormJson(measure.stderr);
+    if (!measured) fail(`${entry.id}: could not measure loudness (is the clip silent?)`);
+    gainStage = loudnormFilter(entry.kind, measured);
+  }
+
+  // Encode to a temp file and rename on success, so an interrupted run never leaves a
+  // partial MP3 behind for the skip-if-exists check to trust.
   fs.mkdirSync(path.dirname(output), { recursive: true });
+  fs.mkdirSync(CACHE_DIR, { recursive: true });
+  const temp = path.join(CACHE_DIR, `out-${entry.kind}-${entry.id}.mp3`);
   const encode = (attenuationDb) => {
     const attenuate = attenuationDb > 0 ? `,volume=-${round(attenuationDb)}dB` : "";
-    return run(`${loudnormFilter(entry.kind, measured)}${attenuate}`, [
+    return run(`${gainStage}${attenuate}`, [
       "-map_metadata",
       "-1",
       "-ar",
@@ -319,27 +365,30 @@ async function buildEntry(entry) {
       "libmp3lame",
       "-b:a",
       "128k",
-      output,
+      "-f",
+      "mp3",
+      temp,
     ]);
   };
 
   let attenuation = 0;
-  let result;
   let stats;
   for (let attempt = 0; attempt < 3; attempt++) {
-    result = encode(attenuation);
-    if (result.status !== 0) fail(`ffmpeg failed encoding ${entry.id}:
-${result.stderr.slice(-2000)}`);
-    stats = measureOutput(output);
+    const result = encode(attenuation);
+    if (result.status !== 0) fail(`ffmpeg failed encoding ${entry.id}:\n${result.stderr.slice(-2000)}`);
+    stats = measureOutput(temp);
     // MP3 encoding can overshoot the limiter; back off until the true peak is under target.
     if (!(stats.peak > TRUE_PEAK)) break;
     attenuation += stats.peak - TRUE_PEAK + 0.2;
   }
 
-  const { lufs, peak } = stats;
+  if (sfx && stats.lufs < SFX_FLOOR_LUFS) {
+    console.log(`  note: impulsive, ${stats.lufs} LUFS is under ${SFX_FLOOR_LUFS}; peak-normalized to ${stats.peak} dBTP instead`);
+  }
+  fs.renameSync(temp, output);
   const kb = Math.round(fs.statSync(output).size / 1024);
   console.log(
-    `  -> ${path.relative(ROOT, output)}  ${probeDuration(output).toFixed(1)}s  ${kb} KB  ${lufs} LUFS  ${peak} dBFS peak`,
+    `  -> ${path.relative(ROOT, output)}  ${probeDuration(output).toFixed(1)}s  ${kb} KB  ${stats.lufs} LUFS  ${stats.peak} dBFS peak`,
   );
 }
 
@@ -348,11 +397,14 @@ async function main() {
   const force = args.includes("--force");
   const onlyIndex = args.indexOf("--only");
   const only = onlyIndex >= 0 ? new Set(args[onlyIndex + 1].split(",")) : null;
+  const kindIndex = args.indexOf("--kind");
+  const kind = kindIndex >= 0 ? args[kindIndex + 1] : null;
 
   const entries = JSON.parse(fs.readFileSync(MANIFEST, "utf8"));
   let built = 0;
   for (const entry of entries) {
     if (only && !only.has(entry.id)) continue;
+    if (kind && entry.kind !== kind) continue;
     const output = path.join(OUT_DIR, entry.kind, `${entry.id}.mp3`);
     if (!force && fs.existsSync(output)) {
       console.log(`skip ${entry.kind}/${entry.id} (exists)`);
