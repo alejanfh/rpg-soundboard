@@ -45,7 +45,7 @@ export function Soundboard({ adventure }: { adventure: Adventure }) {
   const failed = useMemo(() => new Set(snapshot.failed), [snapshot.failed]);
   const activeScene = adventure.scenes.find((scene) => scene.id === activeSceneId);
 
-  useWakeLock(true);
+  const requestWakeLock = useWakeLock(true);
 
   useEffect(() => {
     if (!snapshot.unlocked) return;
@@ -160,7 +160,11 @@ export function Soundboard({ adventure }: { adventure: Adventure }) {
       {!snapshot.unlocked && (
         <UnlockOverlay
           adventureTitle={adventure.title}
-          onUnlock={() => void engine.unlock()}
+          onUnlock={() => {
+            // Inside the unlock tap: a user gesture, which some browsers need.
+            requestWakeLock();
+            void engine.unlock();
+          }}
         />
       )}
     </>

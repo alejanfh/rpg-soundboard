@@ -96,6 +96,23 @@ describe("Soundboard", () => {
     expect(shell()).toBeNull();
   });
 
+  it("also requests the screen wake lock inside the unlock tap", async () => {
+    const request = vi.fn(() => Promise.resolve({ release: () => Promise.resolve() }));
+    Object.defineProperty(navigator, "wakeLock", { value: { request }, configurable: true });
+    try {
+      renderSoundboard({ unlocked: false });
+      await act(() => Promise.resolve());
+      const onMount = request.mock.calls.length;
+
+      fireEvent.click(screen.getByRole("button", { name: /Toca para activar el sonido/ }));
+      await act(() => Promise.resolve());
+
+      expect(request.mock.calls.length).toBe(onMount + 1);
+    } finally {
+      Reflect.deleteProperty(navigator, "wakeLock");
+    }
+  });
+
   it("preloads every scene and cue sfx once unlocked", () => {
     renderSoundboard({ unlocked: false });
     setSnapshot({ unlocked: true });
