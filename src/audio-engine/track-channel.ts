@@ -29,6 +29,12 @@ export interface TrackChannelOptions {
   onFailed: (soundId: string) => void;
 }
 
+function errorName(error: unknown): unknown {
+  return typeof error === "object" && error !== null
+    ? (error as { name?: unknown }).name
+    : undefined;
+}
+
 /** Equal-power curve from `from` to `to`: sine fade-in, cosine fade-out. */
 function fadeCurve(from: number, to: 0 | 1): Float32Array {
   const values = new Float32Array(CURVE_SAMPLES);
@@ -65,12 +71,16 @@ export class TrackChannel {
     const outgoing = this.active;
     const incoming = this.decks[0] === outgoing ? this.decks[1] : this.decks[0];
 
+    // A->B->A: the idle deck may still hold this sound (maybe still playing,
+    // still fading out). Keep its source and fade it back up instead of
+    // reloading it.
+    const holdsSound = incoming.soundId === sound.id;
     clearTimeout(incoming.pauseTimer);
     incoming.pauseTimer = undefined;
     incoming.soundId = sound.id;
-    incoming.element.src = sound.src;
+    if (!holdsSound) incoming.element.src = sound.src;
     this.fade(incoming, 1);
-    this.start(incoming, sound.id);
+    if (!holdsSound || incoming.element.paused) this.start(incoming, sound.id);
 
     if (outgoing) this.fadeOut(outgoing);
     this.active = incoming;
@@ -111,11 +121,18 @@ export class TrackChannel {
   }
 
   private start(deck: Deck, soundId: string): void {
-    deck.element.play().catch((error: unknown) => {
-      // A pause() or new src interrupting play() is normal while switching.
-      const interrupted = error instanceof Error && error.name === "AbortError";
-      if (!interrupted && deck.soundId === soundId) this.options.onFailed(soundId);
-    });
+    const onRejected = (error: unknown) => {
+      // AbortError: a pause() or new src interrupted play(), normal while switching.
+      // NotAllowedError: autoplay/gesture policy, not a broken file.
+      const name = errorName(error);
+      if (name === "AbortError" || name === "NotAllowedError") return;
+      if (deck.soundId === soundId) this.options.onFailed(soundId);
+    };
+    try {
+      Promise.resolve(deck.element.play()).catch(onRejected);
+    } catch (error) {
+      onRejected(error);
+    }
   }
 
   private fadeOut(deck: Deck): void {
@@ -138,13 +155,29 @@ export class TrackChannel {
       : fade.from * Math.cos(angle);
   }
 
+  /**
+   * Schedules an equal-power fade. Web Audio param calls can throw (for
+   * example when a curve overlaps another event); a failed fade must never
+   * escape or leave the deck half-changed, so it degrades to a hard cut to
+   * the target gain.
+   */
   private fade(deck: Deck, to: 0 | 1): void {
     const now = this.options.context.currentTime;
     const from = this.levelAt(deck, now);
     const { gain } = deck.gain;
-    gain.cancelScheduledValues(now);
-    gain.setValueAtTime(from, now);
-    gain.setValueCurveAtTime(fadeCurve(from, to), now, CROSSFADE_SECONDS);
-    deck.fade = { from, to, start: now };
+    try {
+      gain.cancelScheduledValues(now);
+      gain.setValueAtTime(from, now);
+      gain.setValueCurveAtTime(fadeCurve(from, to), now, CROSSFADE_SECONDS);
+      deck.fade = { from, to, start: now };
+    } catch {
+      try {
+        gain.cancelScheduledValues(now);
+      } catch {
+        // Best effort: the direct assignment below still applies.
+      }
+      gain.value = to;
+      deck.fade = { from: to, to, start: now };
+    }
   }
 }

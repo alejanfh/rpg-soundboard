@@ -62,6 +62,10 @@ function anchorBeforeLastCurve(gain: FakeGainNode): GainCall | undefined {
   return calls[index - 1];
 }
 
+function playingDecks(decks: Deck[]): Deck[] {
+  return decks.filter((deck) => !deck.element.paused);
+}
+
 function playingElements(decks: Deck[]): FakeMediaElement[] {
   return decks.filter((deck) => !deck.element.paused).map((d) => d.element);
 }
@@ -337,5 +341,186 @@ describe("AudioEngine tracks", () => {
     expect(ambience).toHaveLength(2);
     expect(playingElements(music).map((e) => e.src)).toEqual([A.src]);
     expect(playingElements(ambience).map((e) => e.src)).toEqual([B.src]);
+  });
+});
+
+/** Makes every element created from now on reject `play()` with `error`. */
+function rejectPlayWith(fake: ReturnType<typeof createFakeDeps>, error: Error) {
+  const createElement = fake.deps.createMediaElement;
+  fake.deps.createMediaElement = () => {
+    const element = createElement();
+    (element as unknown as FakeMediaElement).playError = error;
+    return element;
+  };
+}
+
+/** Counts assignments to `element.src` from now on. */
+function trackSrcWrites(element: FakeMediaElement) {
+  let value = element.src;
+  const tracker = { writes: 0 };
+  Object.defineProperty(element, "src", {
+    get: () => value,
+    set: (next: string) => {
+      tracker.writes += 1;
+      value = next;
+    },
+  });
+  return tracker;
+}
+
+describe("AudioEngine tracks hardening", () => {
+  it("schedules a fade as cancelScheduledValues -> setValueAtTime(level) -> setValueCurveAtTime on the deck gain", async () => {
+    const { engine, fake } = await setup();
+    fake.context.currentTime = 5;
+
+    engine.setTrack("music", A);
+    const [deckA] = playingDecks(decksOf(fake, engine, "music"));
+    fake.context.currentTime = 9;
+    engine.setTrack("music", B);
+
+    const incoming = deckA.gain.gain.calls.slice(0, 3);
+    expect(incoming.map((call) => call.type)).toEqual([
+      "cancelScheduledValues",
+      "setValueAtTime",
+      "setValueCurveAtTime",
+    ]);
+    expect(incoming[0]).toMatchObject({ time: 5 });
+    expect(incoming[1]).toMatchObject({ value: 0, time: 5 });
+    expect(incoming[2]).toMatchObject({ time: 5, duration: CROSSFADE_SECONDS });
+
+    const outgoing = deckA.gain.gain.calls.slice(3);
+    expect(outgoing.map((call) => call.type)).toEqual([
+      "cancelScheduledValues",
+      "setValueAtTime",
+      "setValueCurveAtTime",
+    ]);
+    expect(outgoing[0]).toMatchObject({ time: 9 });
+    expect(outgoing[1]).toMatchObject({ value: 1, time: 9 });
+    expect(outgoing[2]).toMatchObject({ time: 9, duration: CROSSFADE_SECONDS });
+  });
+
+  it.each(["cancelScheduledValues", "setValueAtTime", "setValueCurveAtTime"] as const)(
+    "a throwing %s never escapes setTrack and the decks still end at their target gain",
+    async (method) => {
+      const { engine, fake } = await setup();
+      const createGain = fake.context.createGain.bind(fake.context);
+      fake.context.createGain = () => {
+        const node = createGain();
+        vi.spyOn(node.gain, method).mockImplementation(() => {
+          throw new Error("InvalidStateError");
+        });
+        return node;
+      };
+
+      expect(() => engine.setTrack("music", A)).not.toThrow();
+      const [deckA] = playingDecks(decksOf(fake, engine, "music"));
+      expect(deckA.gain.gain.value).toBe(1);
+
+      expect(() => engine.setTrack("music", B)).not.toThrow();
+
+      const decks = decksOf(fake, engine, "music");
+      const deckB = decks.find((deck) => deck.element.src === B.src)!;
+      expect(deckB.gain.gain.value).toBe(1);
+      expect(deckA.gain.gain.value).toBe(0);
+      expect(engine.getSnapshot().current).toEqual({ music: "b" });
+      expect(deckB.element.paused).toBe(false);
+      vi.advanceTimersByTime(CROSSFADE_SECONDS * 1000);
+      expect(deckA.element.paused).toBe(true);
+      expect(deckB.element.paused).toBe(false);
+    },
+  );
+
+  it("A→B→A within the crossfade window fades the still-playing deck back up without reloading or replaying it", async () => {
+    const { engine, fake } = await setup();
+    engine.setTrack("music", A);
+    const [deckA] = playingDecks(decksOf(fake, engine, "music"));
+    const srcWrites = trackSrcWrites(deckA.element);
+    fake.context.currentTime = 1;
+    engine.setTrack("music", B);
+    const deckB = decksOf(fake, engine, "music").find(
+      (deck) => deck.element.src === B.src,
+    )!;
+    fake.context.currentTime = 2;
+
+    engine.setTrack("music", A);
+
+    expect(srcWrites.writes).toBe(0);
+    expect(deckA.element.playCalls).toBe(1);
+    const anchor = anchorBeforeLastCurve(deckA.gain);
+    expect(anchor).toMatchObject({ type: "setValueAtTime", time: 2 });
+    expect((anchor as { value: number }).value).toBeCloseTo(0.5 * Math.cos(Math.PI / 6), 5);
+    const curve = lastCurve(deckA.gain);
+    expect(curve.time).toBe(2);
+    expect(curve.values.at(-1)).toBe(1);
+    expect(engine.getSnapshot().current).toEqual({ music: "a" });
+
+    vi.advanceTimersByTime(CROSSFADE_SECONDS * 1000 * 2);
+
+    expect(deckA.element.pauseCalls).toBe(0);
+    expect(deckA.element.paused).toBe(false);
+    expect(deckA.gain.gain.settledValue).toBe(1);
+    expect(deckB.element.paused).toBe(true);
+    expect(deckB.gain.gain.settledValue).toBe(0);
+  });
+
+  it("returning to a track whose deck was already paused resumes it without reloading the source", async () => {
+    const { engine, fake } = await setup();
+    engine.setTrack("music", A);
+    const [deckA] = playingDecks(decksOf(fake, engine, "music"));
+    engine.setTrack("music", B);
+    vi.advanceTimersByTime(CROSSFADE_SECONDS * 1000);
+    expect(deckA.element.paused).toBe(true);
+    const srcWrites = trackSrcWrites(deckA.element);
+
+    engine.setTrack("music", A);
+
+    expect(srcWrites.writes).toBe(0);
+    expect(deckA.element.playCalls).toBe(2);
+    expect(deckA.element.paused).toBe(false);
+    expect(lastCurve(deckA.gain).values.at(-1)).toBe(1);
+  });
+
+  it("setTrack is a no-op while the context is not running, even though a graph exists", async () => {
+    const { engine, fake } = await setup();
+    fake.context.setState("suspended");
+    expect(engine.getGraph()).not.toBeNull();
+    expect(engine.getSnapshot().unlocked).toBe(false);
+    const listener = vi.fn();
+    engine.subscribe(listener);
+
+    engine.setTrack("music", A);
+    engine.setTrack("ambience", undefined);
+
+    expect(fake.mediaElements).toHaveLength(0);
+    expect(engine.getSnapshot().current).toEqual({});
+    expect(listener).not.toHaveBeenCalled();
+
+    await engine.unlock();
+    engine.setTrack("music", A);
+    expect(engine.getSnapshot().current).toEqual({ music: "a" });
+  });
+
+  it("a play() rejected with NotAllowedError is a gesture problem, not a broken file: it is not marked failed", async () => {
+    const { engine, fake } = await setup();
+    rejectPlayWith(fake, new DOMException("blocked", "NotAllowedError"));
+
+    engine.setTrack("music", A);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(engine.getSnapshot().failed).toEqual([]);
+    expect(engine.getSnapshot().current).toEqual({ music: "a" });
+  });
+
+  it("a play() rejected with AbortError is ignored, other rejections still mark the sound failed", async () => {
+    const { engine, fake } = await setup();
+    rejectPlayWith(fake, new DOMException("interrupted", "AbortError"));
+    engine.setTrack("music", A);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(engine.getSnapshot().failed).toEqual([]);
+
+    rejectPlayWith(fake, new DOMException("bad media", "NotSupportedError"));
+    engine.setTrack("ambience", B);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(engine.getSnapshot().failed).toEqual(["b"]);
   });
 });

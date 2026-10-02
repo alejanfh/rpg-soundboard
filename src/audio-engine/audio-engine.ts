@@ -131,11 +131,12 @@ export class AudioEngine {
 
   /**
    * Crossfades `layer` to `sound`, or fades it out when `sound` is undefined.
-   * No-op before `unlock()` and when `sound` is already the current track.
+   * No-op unless the engine is unlocked (context running) and when `sound` is
+   * already the current track.
    * Silence is applied on the master gain, so it is unaffected.
    */
   setTrack(layer: TrackLayer, sound: PlayableSound | undefined): void {
-    if (!this.graph) return;
+    if (!this.graph || !this.snapshot.unlocked) return;
     const channel = this.channelFor(this.graph, layer);
     const changed = sound ? channel.play(sound) : channel.stop();
     if (changed) this.syncCurrent();
