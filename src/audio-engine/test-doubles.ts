@@ -179,6 +179,8 @@ export class FakeAudioContext {
   onstatechange: (() => void) | null = null;
   readonly destination = new FakeAudioNode();
   readonly gains: FakeGainNode[] = [];
+  /** Every media element source created, in order. Its first connection is the deck gain. */
+  readonly mediaSources: FakeMediaElementSourceNode[] = [];
   resumeCalls = 0;
   /** When set, `resume()` rejects with this error and the state is unchanged. */
   resumeError: Error | null = null;
@@ -208,7 +210,9 @@ export class FakeAudioContext {
   }
 
   createMediaElementSource(element: FakeMediaElement) {
-    return new FakeMediaElementSourceNode(element);
+    const source = new FakeMediaElementSourceNode(element);
+    this.mediaSources.push(source);
+    return source;
   }
 
   createBufferSource(): FakeBufferSource {

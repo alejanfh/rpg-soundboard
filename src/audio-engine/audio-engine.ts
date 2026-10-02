@@ -1,10 +1,13 @@
+import { CROSSFADE_SECONDS, TrackChannel } from "./track-channel";
 import type {
   AudioEngineDeps,
   EngineSnapshot,
   Layer,
+  PlayableSound,
+  TrackLayer,
 } from "./types";
 
-export const CROSSFADE_SECONDS = 3;
+export { CROSSFADE_SECONDS };
 export const SILENCE_FADE_SECONDS = 0.4;
 export const DEFAULT_VOLUMES: Readonly<Record<Layer, number>> = {
   music: 0.6,
@@ -14,6 +17,7 @@ export const DEFAULT_VOLUMES: Readonly<Record<Layer, number>> = {
 export const VOLUMES_STORAGE_KEY = "rpg-soundboard:volumes";
 
 const LAYERS: readonly Layer[] = ["music", "ambience", "sfx"];
+const TRACK_LAYERS: readonly TrackLayer[] = ["music", "ambience"];
 
 /** The Web Audio graph: bus gains -> master gain -> destination. */
 export interface AudioGraph {
@@ -55,6 +59,7 @@ export class AudioEngine {
   private readonly deps: AudioEngineDeps;
   private readonly listeners = new Set<() => void>();
   private graph: AudioGraph | null = null;
+  private readonly channels: Partial<Record<TrackLayer, TrackChannel>> = {};
   private snapshot: EngineSnapshot;
 
   constructor(deps: AudioEngineDeps) {
@@ -86,23 +91,13 @@ export class AudioEngine {
   }
 
   /**
-   * Merges `patch` into the snapshot and notifies subscribers.
-   * Used by the engine's own features; not meant for UI code.
-   * @internal
-   */
-  patchSnapshot(patch: Partial<EngineSnapshot>): void {
-    this.snapshot = { ...this.snapshot, ...patch };
-    for (const listener of [...this.listeners]) listener();
-  }
-
-  /**
    * Creates the context and graph on first call and resumes the context.
    * Must run inside a user gesture. Never rejects: if the browser refuses,
    * the engine simply stays locked.
    */
   async unlock(): Promise<void> {
-    const graph = this.graph ?? this.createGraph();
     try {
+      const graph = this.graph ?? this.createGraph();
       await graph.context.resume();
     } catch {
       return;
@@ -132,6 +127,60 @@ export class AudioEngine {
     if (!this.graph || !this.snapshot.silenced) return;
     this.rampMaster(this.graph, 1);
     this.patchSnapshot({ silenced: false });
+  }
+
+  /**
+   * Crossfades `layer` to `sound`, or fades it out when `sound` is undefined.
+   * No-op before `unlock()` and when `sound` is already the current track.
+   * Silence is applied on the master gain, so it is unaffected.
+   */
+  setTrack(layer: TrackLayer, sound: PlayableSound | undefined): void {
+    if (!this.graph) return;
+    const channel = this.channelFor(this.graph, layer);
+    const changed = sound ? channel.play(sound) : channel.stop();
+    if (changed) this.syncCurrent();
+  }
+
+  /** Fades out both track layers and clears them. */
+  stopAll(): void {
+    let changed = false;
+    for (const layer of TRACK_LAYERS) {
+      if (this.channels[layer]?.stop()) changed = true;
+    }
+    if (changed) this.syncCurrent();
+  }
+
+  /** Merges `patch` into the snapshot and notifies subscribers. */
+  private patchSnapshot(patch: Partial<EngineSnapshot>): void {
+    this.snapshot = { ...this.snapshot, ...patch };
+    for (const listener of [...this.listeners]) listener();
+  }
+
+  private channelFor(graph: AudioGraph, layer: TrackLayer): TrackChannel {
+    const existing = this.channels[layer];
+    if (existing) return existing;
+    const channel = new TrackChannel({
+      context: graph.context,
+      bus: graph.buses[layer],
+      createMediaElement: this.deps.createMediaElement,
+      onFailed: (soundId) => this.markFailed(soundId),
+    });
+    this.channels[layer] = channel;
+    return channel;
+  }
+
+  private syncCurrent(): void {
+    const current: EngineSnapshot["current"] = {};
+    for (const layer of TRACK_LAYERS) {
+      const id = this.channels[layer]?.currentId;
+      if (id !== undefined) current[layer] = id;
+    }
+    this.patchSnapshot({ current });
+  }
+
+  private markFailed(soundId: string): void {
+    if (this.snapshot.failed.includes(soundId)) return;
+    this.patchSnapshot({ failed: [...this.snapshot.failed, soundId] });
   }
 
   private createGraph(): AudioGraph {

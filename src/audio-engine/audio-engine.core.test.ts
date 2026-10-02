@@ -78,6 +78,25 @@ describe("AudioEngine core", () => {
     expect(engine.getSnapshot().unlocked).toBe(false);
   });
 
+  it("unlock does not reject when the context cannot be created, and can be retried", async () => {
+    const { engine, fake } = setup();
+    const create = fake.deps.createContext;
+    fake.deps.createContext = () => {
+      throw new Error("no audio here");
+    };
+
+    await expect(engine.unlock()).resolves.toBeUndefined();
+
+    expect(engine.getSnapshot().unlocked).toBe(false);
+    expect(engine.getGraph()).toBeNull();
+
+    fake.deps.createContext = create;
+    await engine.unlock();
+
+    expect(engine.getSnapshot().unlocked).toBe(true);
+    expect(fake.contexts).toHaveLength(1);
+  });
+
   it("setVolume clamps to 0..1, updates the bus gain, persists to storage, and notifies subscribers", async () => {
     const { engine, fake } = setup();
     await engine.unlock();
