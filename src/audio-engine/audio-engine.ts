@@ -128,9 +128,14 @@ export class AudioEngine {
     this.patchSnapshot({ silenced: true });
   }
 
-  /** Fades the master gain back to 1. */
+  /**
+   * Fades the master gain back to 1 and restarts any current track whose
+   * element was paused by the OS, even when the engine was not silenced.
+   */
   resume(): void {
-    if (!this.graph || !this.snapshot.silenced) return;
+    if (!this.graph) return;
+    for (const layer of TRACK_LAYERS) this.channels[layer]?.resumeIfPaused();
+    if (!this.snapshot.silenced) return;
     this.rampMaster(this.graph, 1);
     this.patchSnapshot({ silenced: false });
   }
@@ -138,7 +143,7 @@ export class AudioEngine {
   /**
    * Crossfades `layer` to `sound`, or fades it out when `sound` is undefined.
    * No-op unless the engine is unlocked (context running) and when `sound` is
-   * already the current track.
+   * already the current track (a paused element of it is restarted, though).
    * Silence is applied on the master gain, so it is unaffected.
    */
   setTrack(layer: TrackLayer, sound: PlayableSound | undefined): void {

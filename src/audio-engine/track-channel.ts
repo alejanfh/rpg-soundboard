@@ -65,11 +65,19 @@ export class TrackChannel {
     return this.active?.soundId;
   }
 
-  /** Crossfades to `sound`. Returns false when it is already the current track. */
+  /**
+   * Crossfades to `sound`. Returns false when it is already the current
+   * track; if its element was paused behind our back (an OS interruption that
+   * left the context running), it is restarted without touching gain or state.
+   */
   play(sound: PlayableSound): boolean {
-    if (this.active?.soundId === sound.id) return false;
-    const outgoing = this.active;
-    const incoming = this.decks[0] === outgoing ? this.decks[1] : this.decks[0];
+    const current = this.active;
+    if (current?.soundId === sound.id) {
+      if (current.element.paused) this.start(current, sound.id);
+      return false;
+    }
+    const outgoing = current;
+    const incoming = this.pickIncoming(outgoing, sound.id);
 
     // A->B->A: the idle deck may still hold this sound (maybe still playing,
     // still fading out). Keep its source and fade it back up instead of
@@ -104,6 +112,20 @@ export class TrackChannel {
     this.fadeOut(this.active);
     this.active = null;
     return true;
+  }
+
+  /**
+   * The deck the next track loads into. With an active deck it is the other
+   * one. After `stop()` neither is active: prefer a deck that already holds
+   * the sound, then one that is idle, so a deck still fading out is not cut.
+   */
+  private pickIncoming(outgoing: Deck | null, soundId: string): Deck {
+    if (outgoing) return this.decks[0] === outgoing ? this.decks[1] : this.decks[0];
+    return (
+      this.decks.find((deck) => deck.soundId === soundId) ??
+      this.decks.find((deck) => deck.pauseTimer === undefined) ??
+      this.decks[0]
+    );
   }
 
   private createDeck(): Deck {

@@ -574,3 +574,87 @@ describe("AudioEngine tracks hardening", () => {
     expect(engine.getSnapshot().current).toEqual({});
   });
 });
+
+describe("AudioEngine tracks revival", () => {
+  it("re-requesting the current track revives a paused element", async () => {
+    const { engine, fake } = await setup();
+    engine.setTrack("music", A);
+    vi.advanceTimersByTime(CROSSFADE_SECONDS * 1000);
+    const [deck] = playingDecks(decksOf(fake, engine, "music"));
+    const snapshot = engine.getSnapshot();
+    const listener = vi.fn();
+    engine.subscribe(listener);
+    const curveCount = curves(deck.gain).length;
+    const plays = deck.element.playCalls;
+
+    // The OS paused the element but the context kept running.
+    deck.element.pause();
+    engine.setTrack("music", A);
+
+    expect(deck.element.playCalls).toBe(plays + 1);
+    expect(deck.element.paused).toBe(false);
+    expect(curves(deck.gain)).toHaveLength(curveCount);
+    expect(listener).not.toHaveBeenCalled();
+    expect(engine.getSnapshot()).toBe(snapshot);
+  });
+
+  it("resume() revives paused active decks even when the engine is not silenced", async () => {
+    const { engine, fake } = await setup();
+    engine.setTrack("music", A);
+    engine.setTrack("ambience", C);
+    vi.advanceTimersByTime(CROSSFADE_SECONDS * 1000);
+    const [music] = playingDecks(decksOf(fake, engine, "music"));
+    const [ambience] = playingDecks(decksOf(fake, engine, "ambience"));
+    music.element.pause();
+    ambience.element.pause();
+    const musicCurves = curves(music.gain).length;
+
+    engine.resume();
+
+    expect(music.element.paused).toBe(false);
+    expect(ambience.element.paused).toBe(false);
+    expect(curves(music.gain)).toHaveLength(musicCurves);
+    expect(engine.getSnapshot().silenced).toBe(false);
+  });
+
+  it("resume() revives paused decks and ramps master back up when silenced", async () => {
+    const { engine, fake } = await setup();
+    engine.setTrack("music", A);
+    vi.advanceTimersByTime(CROSSFADE_SECONDS * 1000);
+    const [music] = playingDecks(decksOf(fake, engine, "music"));
+    engine.silence();
+    music.element.pause();
+
+    engine.resume();
+
+    expect(music.element.paused).toBe(false);
+    expect(asFakeGain(engine.getGraph()!.master).gain.settledValue).toBe(1);
+    expect(engine.getSnapshot().silenced).toBe(false);
+  });
+
+  it("after stop(), the next track uses an idle deck instead of the one still fading out", async () => {
+    const { engine, fake } = await setup();
+    const D = { id: "d", src: "/audio/d.mp3" };
+    engine.setTrack("music", A);
+    engine.setTrack("music", B);
+    engine.setTrack("music", C);
+    vi.advanceTimersByTime(CROSSFADE_SECONDS * 1000);
+    // C lives on the first deck; the second one is paused and idle.
+    const [fading] = playingDecks(decksOf(fake, engine, "music"));
+    const idle = decksOf(fake, engine, "music").find((deck) => deck.element !== fading.element)!;
+    expect(fading.element.src).toBe(C.src);
+    expect(idle.element.paused).toBe(true);
+
+    engine.setTrack("music", undefined);
+    vi.advanceTimersByTime(1000);
+    engine.setTrack("music", D);
+
+    expect(idle.element.src).toBe(D.src);
+    expect(idle.element.paused).toBe(false);
+    expect(fading.element.src).toBe(C.src);
+    vi.advanceTimersByTime(CROSSFADE_SECONDS * 1000);
+    expect(fading.element.paused).toBe(true);
+    expect(idle.element.paused).toBe(false);
+    expect(engine.getSnapshot().current).toEqual({ music: "d" });
+  });
+});
