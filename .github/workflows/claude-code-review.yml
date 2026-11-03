@@ -1,0 +1,48 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+jobs:
+  claude-review:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            Revisa este pull request y escribe los comentarios en español.
+            Lee AGENTS.md y README.md antes de empezar: el proyecto usa una versión
+            de Next.js con cambios incompatibles y tiene reglas de contenido propias.
+
+            Céntrate en:
+            - Errores de lógica y casos límite.
+            - Aventuras en src/adventures/: ids kebab-case únicos, sonidos existentes
+              y del tipo correcto (musicId música, ambienceId ambiente, sfxIds efectos).
+            - Sonidos nuevos: licencia permitida (CC0, CC-BY-4.0 con workTitle,
+              dominio público o generado) y coherencia entre scripts/audio-sources.json
+              y src/sound-library/sounds.ts.
+            - Que la interfaz siga funcionando bien en iPad y móvil.
+            - Textos de la interfaz en español y código en inglés.
+
+            Sé breve. Usa comentarios en línea para problemas concretos y un comentario
+            general en el PR (gh pr comment) con el resumen. Si no ves problemas, dilo
+            en una línea.
+
+          claude_args: '--allowed-tools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"'
